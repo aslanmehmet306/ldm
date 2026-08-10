@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+cases.jsonl
+results.json
+.venv/
+.DS_Store

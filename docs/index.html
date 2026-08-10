@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8">
+<title>LDM Message Parser — Type B load messages</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Paste a raw Type B LDM message and see it parsed, with cross-field validation. Runs entirely in your browser. Independent tool, not affiliated with IATA.">
+<meta name="color-scheme" content="dark">
+<style>
+:root{
+  --bg:#0D0F12; --surface:#12151A; --surface2:#171B21;
+  --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.15);
+  --text:#E9E7E2; --dim:#97948D; --faint:#64615B;
+  --accent:#8CB4D8; --accent-dim:#5D87AB;
+  --pass:#74C39C; --warn:#DFAE68; --fail:#DB7C6C;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  --r:10px;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:var(--sans); font-size:13.5px; line-height:1.55;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+body::before{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background:
+    radial-gradient(880px 480px at 12% -8%, rgba(140,180,216,.09), transparent 62%),
+    radial-gradient(1100px 620px at 90% -12%, rgba(255,255,255,.045), transparent 58%);
+}
+.wrap{position:relative; z-index:1; max-width:1240px; margin:0 auto; padding:44px 26px 80px}
+
+/* ---------- masthead ---------- */
+.kicker{
+  font-family:var(--mono); font-size:10px; letter-spacing:.28em; text-transform:uppercase;
+  color:var(--accent); display:flex; align-items:center; gap:11px;
+}
+.kicker::after{content:""; height:1px; flex:1; background:linear-gradient(90deg,
+  rgba(140,180,216,.42), transparent)}
+h1{
+  font-size:clamp(30px,4.6vw,46px); font-weight:600; letter-spacing:-.035em;
+  margin:16px 0 12px; line-height:1.04;
+  background:linear-gradient(180deg,#FFFDF9 0%,#A9A69F 122%);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.sub{color:var(--dim); max-width:60ch; font-size:14.5px}
+.chips{display:flex; gap:7px; flex-wrap:wrap; margin:22px 0 34px}
+.chip{
+  font-family:var(--mono); font-size:10px; letter-spacing:.13em; text-transform:uppercase;
+  padding:5px 11px; border:1px solid var(--line); border-radius:999px;
+  color:var(--dim); background:rgba(255,255,255,.025);
+}
+.chip.on{color:var(--accent); border-color:rgba(140,180,216,.30);
+  background:rgba(140,180,216,.07)}
+
+/* ---------- layout ---------- */
+.cols{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:26px; align-items:start}
+@media(max-width:940px){.cols{grid-template-columns:1fr; gap:30px}}
+h2{
+  font-family:var(--mono); font-size:10px; letter-spacing:.24em; text-transform:uppercase;
+  color:var(--faint); margin:0 0 13px; font-weight:500;
+}
+h3{
+  font-family:var(--mono); font-size:10px; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--faint); margin:28px 0 11px; font-weight:500;
+}
+
+/* ---------- input ---------- */
+.editor{
+  border:1px solid var(--line); border-radius:var(--r); overflow:hidden;
+  background:linear-gradient(180deg, var(--surface2), var(--surface));
+  transition:border-color .2s, box-shadow .2s;
+}
+.editor:focus-within{border-color:rgba(140,180,216,.42);
+  box-shadow:0 0 0 3px rgba(140,180,216,.10), 0 18px 46px -22px rgba(0,0,0,.9)}
+.ruler{
+  font-family:var(--mono); font-size:9.5px; color:var(--faint); letter-spacing:0;
+  padding:7px 16px 0; white-space:pre; overflow:hidden; user-select:none;
+  border-bottom:1px solid var(--line); padding-bottom:6px;
+}
+.ruler b{color:var(--accent); font-weight:500}
+textarea{
+  display:block; width:100%; min-height:150px; overflow-y:hidden;
+  font-family:var(--mono); font-size:12.5px; line-height:1.62;
+  padding:14px 16px 16px; border:0; background:transparent; color:var(--text);
+  resize:none; white-space:pre; overflow-x:auto; caret-color:var(--accent);
+}
+textarea:focus{outline:none}
+textarea::placeholder{color:var(--faint)}
+.samples{display:flex; gap:7px; flex-wrap:wrap; margin:14px 0 0}
+.samples button{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.04em;
+  padding:7px 12px; border:1px solid var(--line); border-radius:7px;
+  background:rgba(255,255,255,.03); color:var(--dim); cursor:pointer;
+  transition:all .16s ease;
+}
+.samples button:hover{color:var(--accent); border-color:rgba(140,180,216,.34);
+  background:rgba(140,180,216,.08); transform:translateY(-1px)}
+.samples button:active{transform:translateY(0)}
+.samples button.sel{color:var(--accent); border-color:rgba(140,180,216,.48);
+  background:rgba(140,180,216,.11)}
+.hint{font-size:11.5px; color:var(--faint); margin-top:13px; line-height:1.6}
+
+/* ---------- output ---------- */
+.map{
+  font-family:var(--mono); font-size:11px; color:var(--dim);
+  border:1px solid var(--line); border-left:2px solid var(--accent-dim);
+  border-radius:var(--r); padding:11px 15px; margin-bottom:15px;
+  background:rgba(140,180,216,.05);
+}
+.map b{color:var(--accent); font-weight:600; font-variant-numeric:tabular-nums}
+.map .none{color:var(--warn)}
+.card{
+  border:1px solid var(--line); border-radius:var(--r); padding:0;
+  background:linear-gradient(180deg, var(--surface2), var(--surface));
+  margin-bottom:13px; overflow:hidden;
+  box-shadow:0 18px 44px -30px rgba(0,0,0,.95);
+}
+.card.muted{opacity:.72}
+.cardhead{
+  display:flex; align-items:baseline; justify-content:space-between; gap:12px;
+  padding:11px 16px; border-bottom:1px solid var(--line);
+  background:rgba(255,255,255,.025);
+}
+.cardhead .t{font-family:var(--mono); font-size:12.5px; letter-spacing:.1em;
+  color:var(--accent); font-weight:600}
+.cardhead .n{font-family:var(--mono); font-size:10px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--faint)}
+table{width:100%; border-collapse:collapse; font-family:var(--mono); font-size:12px}
+td{padding:7px 16px; border-bottom:1px solid rgba(255,255,255,.05); vertical-align:top}
+tr:last-child td{border-bottom:0}
+td:first-child{color:var(--faint); width:46%; font-size:11.5px}
+td:last-child{text-align:right; color:var(--text); font-variant-numeric:tabular-nums}
+td.wide{text-align:left; font-size:11.5px; line-height:1.65}
+.null{color:var(--faint); font-style:italic}
+.pad{padding:13px 16px; color:var(--dim); font-size:12px; line-height:1.6}
+
+.chk{
+  font-size:11.5px; padding:10px 13px 10px 15px; margin-bottom:7px;
+  border-radius:8px; border:1px solid; line-height:1.55; font-family:var(--mono);
+  display:flex; gap:10px; align-items:flex-start;
+}
+.chk::before{font-weight:700; flex-shrink:0}
+.chk.pass{color:#B9E3CE; border-color:rgba(116,195,156,.24); background:rgba(116,195,156,.06)}
+.chk.pass::before{content:"OK"; color:var(--pass)}
+.chk.warn{color:#F0DBB4; border-color:rgba(223,174,104,.26); background:rgba(223,174,104,.06)}
+.chk.warn::before{content:"!"; color:var(--warn)}
+.chk.fail{color:#F0BDB4; border-color:rgba(219,124,108,.28); background:rgba(219,124,108,.07)}
+.chk.fail::before{content:"\00D7"; color:var(--fail)}
+.chk b{color:#fff; font-weight:600}
+
+.silines{
+  font-family:var(--mono); font-size:10.5px; padding:11px 16px; white-space:pre;
+  overflow-x:auto; color:var(--dim); line-height:1.65;
+  border-top:1px solid var(--line); background:rgba(0,0,0,.22);
+}
+.silines .ln{color:var(--faint); user-select:none}
+.srcnote{font-size:10.5px; color:var(--faint); padding:8px 16px 11px;
+  background:rgba(0,0,0,.22)}
+
+details{margin-top:16px; border:1px solid var(--line); border-radius:var(--r);
+  background:rgba(255,255,255,.02)}
+summary{cursor:pointer; font-family:var(--mono); font-size:10px; letter-spacing:.2em;
+  text-transform:uppercase; color:var(--dim); padding:11px 16px; list-style:none;
+  transition:color .15s}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"+ "; color:var(--accent)}
+details[open] summary::before{content:"\2212 "}
+summary:hover{color:var(--accent)}
+pre.json{font-family:var(--mono); font-size:11px; padding:0 16px 15px; margin:0;
+  overflow-x:auto; max-height:440px; overflow-y:auto; color:var(--dim); line-height:1.55}
+.empty{color:var(--faint); font-style:italic; padding:40px 0; text-align:center;
+  border:1px dashed var(--line); border-radius:var(--r)}
+
+.fade{animation:fade .34s ease both}
+@keyframes fade{from{opacity:0; transform:translateY(5px)} to{opacity:1; transform:none}}
+@media(prefers-reduced-motion:reduce){.fade{animation:none}
+  .samples button:hover{transform:none}}
+
+footer{margin-top:60px; padding-top:22px; border-top:1px solid var(--line);
+  font-size:11.5px; color:var(--faint); max-width:82ch; line-height:1.7}
+footer p{margin:0 0 11px}
+footer b{color:var(--dim); font-weight:600}
+code{font-family:var(--mono); font-size:.94em; color:var(--dim);
+  background:rgba(255,255,255,.05); padding:1px 5px; border-radius:4px}
+::selection{background:rgba(140,180,216,.28)}
+::-webkit-scrollbar{height:9px; width:9px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.13); border-radius:9px}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.22)}
+</style>
+
+<div class="wrap">
+  <div class="kicker">Type B &middot; load distribution message</div>
+  <h1>LDM Message Parser</h1>
+  <div class="sub">Paste a raw Load Distribution Message. It is parsed, then cross-checked for the
+    inconsistencies that make an LDM parse look right and be wrong.</div>
+  <div class="chips">
+    <span class="chip on">Runs in your browser</span>
+    <span class="chip">Nothing uploaded</span>
+    <span class="chip">No dependencies</span>
+    <span class="chip">Single file</span>
+  </div>
+
+  <div class="cols">
+    <div>
+      <h2>Message</h2>
+      <div class="editor">
+        <div class="ruler" id="ruler"></div>
+        <textarea id="in" spellcheck="false" autocapitalize="off" autocorrect="off"
+          placeholder="LDM&#10;ZZ412/24.XYABC.Y189.3/5&#10;-FRA.41/28/2/2.T1340.4/1340.PAX/71"></textarea>
+      </div>
+      <div class="samples" id="samples"></div>
+      <div class="hint">Samples are synthetic and cover the variants that break naive parsers:
+        aircraft type in the version field, an empty infant slot, slash-joined compartments, and
+        lines wrapped mid-element at column 64 — marked on the ruler above.</div>
+    </div>
+    <div>
+      <h2>Parsed</h2>
+      <div id="out"><div class="empty">Paste a message or pick a sample.</div></div>
+    </div>
+  </div>
+
+  <footer>
+    <p><b>Independent implementation tool. Not affiliated with or endorsed by IATA.</b>
+    It does not reproduce or replace the applicable IATA manuals or standards. For authoritative
+    specifications, consult the officially licensed publications — the LDM is defined in the
+    Airport Handling Manual.</p>
+    <p>Implements parsing rules written from message behaviour observed in live Type B traffic,
+    published as the <code>ldm-message-parsing</code> skill. Coverage is deliberate rather than
+    exhaustive: real traffic contains carrier-specific shapes not represented here. If you have a
+    message it mishandles, that is the interesting case.</p>
+    <p>Everything runs client-side. No message you paste is transmitted, stored or logged, and no
+    fonts, scripts or analytics are loaded from anywhere — which is why this page uses system
+    typefaces.</p>
+  </footer>
+</div>
+
+<script>
+/* ============================================================================
+   LDM parser — deterministic implementation built from field-observed message
+   behaviour. No dependencies, no network.
+   ========================================================================= */
+
+// Service and special-load codes encountered in live traffic. Needed to tell a remark
+// like AVI/4/14 apart from a compartment like AB/582 — both are alphabetic with a slash.
+// Extend this list from the codes you actually receive; the authoritative set is
+// published by IATA in AHM 510.
+const REMARK_CODES = new Set(["AVI","HEA","HEG","PER","PES","DGR","RRY","ICE","MAG","WET",
+ "EAT","HUM","VAL","BIG","SOC","FRG","DIP","WEA","EXP","ELI","CAO","AOG","CRW","JMP","LMC",
+ "BAL","MED","OHG","BUL","XPS","COU"]);
+
+const CLASS_LABELS = {1:["Y"], 2:["C","Y"], 3:["F","C","Y"], 4:["F","C","W","Y"]};
+
+// Baggage / Cargo / Mail / Equipment. These single letters are also valid compartment
+// designators on freighters, so shape alone cannot separate them — see parseBlock.
+const LOAD_CATEGORIES = {B:"Baggage", C:"Cargo", M:"Mail", E:"Equipment"};
+
+function normalise(raw){
+  const lines = raw.replace(/\r/g,"").split("\n").map(l=>l.replace(/\s+$/,""));
+  const body=[], si=[];
+  let inSI=false, siFrom=null;
+  lines.forEach((l,i)=>{
+    if(!inSI && /^SI\b/.test(l.trim())){ inSI=true; siFrom=i+1; }
+    (inSI?si:body).push(l);
+  });
+  // Drop the standard message identifier, then rebuild logical lines. A telex link
+  // breaks a line at a fixed column, often mid-element, so continuations are joined
+  // with no separator. A block ends only at the next "-XXX".
+  const clean = body.filter(l=>l.trim()!=="" && l.trim()!=="LDM");
+  const logical=[];
+  for(const l of clean){
+    if(/^-[A-Z0-9]{3}/.test(l.trim())) logical.push(l.trim());
+    else if(logical.length) logical[logical.length-1] += l.trim();
+    else logical.push(l.trim());
+  }
+  return {header: logical.length?logical[0]:"",
+          blocks: logical.slice(1).filter(b=>b.startsWith("-")),
+          si: si.filter(l=>l.trim()!==""), siFrom, totalLines: lines.length};
+}
+
+function parseFlightRecord(s, warn){
+  const parts = s.split(".");
+  const out = {airline:null,flightNumber:null,flightDay:null,registration:null,
+               aircraftVersion:null,cockpitCrew:null,cabinCrewTotal:null,
+               maleCabinCrew:null,femaleCabinCrew:null};
+  if(!parts[0]){ warn.push(["fail","No flight record found."]); return out; }
+
+  let fid = parts[0];
+  const dm = fid.match(/\/(\d{1,2})$/);
+  if(dm){ out.flightDay = dm[1]; fid = fid.slice(0, -dm[0].length); }
+
+  // 3-letter designators are all alphabetic; 2-char ones may contain a digit.
+  let m = fid.match(/^([A-Z]{3})(\d{1,4}[A-Z]?)$/) || fid.match(/^([A-Z0-9]{2})(\d{1,4}[A-Z]?)$/);
+  if(m){ out.airline=m[1]; out.flightNumber=m[2]; }
+  else warn.push(["warn","Flight identifier <b>"+fid+"</b> does not match the expected shape."]);
+
+  if(parts[1]) out.registration = parts[1].replace(/-/g,"");
+  // Element 4 is free text in practice — stored verbatim, never interpreted.
+  if(parts[2]) out.aircraftVersion = parts[2];
+
+  if(parts[3]){
+    const c = parts[3].split("/");
+    if(c.length===2){ out.cockpitCrew=+c[0]; out.cabinCrewTotal=+c[1]; }
+    else if(c.length===3){
+      out.cockpitCrew=+c[0]; out.maleCabinCrew=+c[1]; out.femaleCabinCrew=+c[2];
+      out.cabinCrewTotal = (+c[1]) + (+c[2]);
+    } else warn.push(["warn","Crew element <b>"+parts[3]+"</b> has an unexpected shape."]);
+  }
+  if(parts.length>4)
+    out.aircraftVersion = parts.slice(2, parts.length-1).join(".");
+  return out;
+}
+
+function parseCompartmentToken(tok){
+  // Handles both ".1/615.3/500" (arriving as separate tokens) and
+  // "AB/582/A2/532/A1/2915" (one slash-joined token).
+  const bits = tok.split("/");
+  if(bits.length<2 || bits.length%2!==0) return null;
+  const out={};
+  for(let i=0;i<bits.length;i+=2){
+    const id=bits[i], w=bits[i+1];
+    if(!/^[A-Z0-9]{1,3}$/.test(id) || !/^\d{1,6}$/.test(w)) return null;
+    out[id]=+w;
+  }
+  return out;
+}
+
+function parseBlock(str, warn){
+  const dest = str.slice(1,4);
+  const tokens = str.slice(4).split(".").filter(t=>t!=="");
+  const d = {destination:dest, nil:false, male:null, female:null, adult:null, child:null,
+             infant:null, paxSeated:null, cabinBaggageWeight:null, totalDeadload:null,
+             cargoTotalWeight:null, compartments:{}, loadCategories:{}, paxByClass:null, padByClass:null,
+             remarks:[]};
+  let seenTotal=false, seenPax=false;
+
+  for(const tok of tokens){
+    if(tok==="NIL"){ d.nil=true; continue; }
+
+    // Element 11B on freighters — check TW before T, or "TW3216" reads as T + "W3216".
+    let m;
+    if((m = tok.match(/^TW(\d{1,6})$/))){ d.cargoTotalWeight=+m[1]; seenTotal=true; continue; }
+    if((m = tok.match(/^T(\d{1,6})$/))){ d.totalDeadload=+m[1]; seenTotal=true; continue; }
+
+    if(tok.startsWith("PAX/")){ d.paxByClass = tok.slice(4).split("/").map(Number); continue; }
+    if(tok.startsWith("PAD/")){ d.padByClass = tok.slice(4).split("/").map(Number); continue; }
+
+    const head = tok.split("/")[0];
+    if(REMARK_CODES.has(head)){
+      const vals = tok.split("/").slice(1).filter(v=>v!=="").map(Number);
+      d.remarks.push({code:head, values:vals});
+      continue;
+    }
+
+    if(!seenTotal){
+      // Element 8 first, then the unlabelled Element 9 cabin baggage weight.
+      if(!seenPax && /^\d+(\/\d*)+$/.test(tok)){
+        const v = tok.split("/");
+        if(v.length===3){
+          d.adult=+v[0]; d.child=+v[1]; d.infant = v[2]===""?null:+v[2];
+        } else if(v.length===4){
+          d.male=+v[0]; d.female=+v[1]; d.adult=(+v[0])+(+v[1]);
+          d.child=+v[2];
+          // A trailing slash leaves the infant field empty: unknown, not zero.
+          d.infant = v[3]===""?null:+v[3];
+        } else { warn.push(["warn",dest+": passenger element <b>"+tok+"</b> has "+v.length+
+          " values; expected 3 or 4."]); }
+        if(d.adult!==null) d.paxSeated = d.adult + (d.child||0);
+        seenPax=true; continue;
+      }
+      if(/^\d{1,4}$/.test(tok)){ d.cabinBaggageWeight=+tok; continue; }
+    }
+
+    const comp = parseCompartmentToken(tok);
+    if(comp){
+      // A weight breakdown by load category can appear after the compartment list and is
+      // indistinguishable from a compartment by shape: ".B/1340" looks exactly like ".AB/582".
+      // It is read as a category only once a total and at least one compartment already exist,
+      // which keeps freighter position designators (".B/740" leading a block) as compartments.
+      const keys = Object.keys(comp);
+      if(seenTotal && Object.keys(d.compartments).length &&
+         keys.every(k=>k in LOAD_CATEGORIES)){
+        Object.assign(d.loadCategories, comp);
+      } else {
+        Object.assign(d.compartments, comp);
+      }
+      continue;
+    }
+
+    if(/^[A-Z]{2,3}$/.test(tok)){ d.remarks.push({code:tok, values:[]}); continue; }
+    warn.push(["warn",dest+": unrecognised element <b>"+tok+"</b> — kept out of the result."]);
+  }
+  return d;
+}
+
+function parseSI(lines){
+  const text = lines.join("\n");
+  const si = {baggageWeight:null, cargoWeight:null, mailWeight:null, equipmentWeight:null,
+              bagPieces:null, holdWeights:{}, holdPieces:{}, raw:text};
+  let m;
+  // Pattern 2 — destination-level B/C/M/E
+  if((m = text.match(/\bB\/(\d+)/))) si.baggageWeight = +m[1];
+  if((m = text.match(/\bC\/(\d+)/))) si.cargoWeight = +m[1];
+  if((m = text.match(/\bM\/(\d+)/))) si.mailWeight = +m[1];
+  if((m = text.match(/\bE\/(\d+)/))) si.equipmentWeight = +m[1];
+  // Pattern 3 — labelled free text
+  if(si.baggageWeight===null && (m = text.match(/\bBAG\s+(\d+)/))) si.baggageWeight = +m[1];
+  if(si.cargoWeight===null && (m = text.match(/\bFRE\s+(\d+)/))) si.cargoWeight = +m[1];
+  // Pattern 1 — hold-level weights and bag piece counts
+  if((m = text.match(/BPCS\/(\d+)/))) si.bagPieces = +m[1];
+  for(const line of lines){
+    const t = line.replace(/^SI\s*/,"").trim();
+    if(/^\d{1,3}\/\d+(\.\d{1,3}\/\d+)*$/.test(t))
+      t.split(".").forEach(p=>{const[a,b]=p.split("/"); si.holdWeights[a]=+b;});
+    if(/^BPCS\//.test(t))
+      t.split(".").slice(1).forEach(p=>{const[a,b]=p.split("/"); si.holdPieces[a]=+b;});
+  }
+  return si;
+}
+
+function validate(res){
+  const c=[];
+  const dests = res.destinations;
+
+  dests.forEach(d=>{
+    if(d.nil) return;
+    if(d.paxByClass && d.paxSeated!==null){
+      const s = d.paxByClass.reduce((a,b)=>a+b,0);
+      if(s===d.paxSeated)
+        c.push(["pass",d.destination+": <b>.PAX/</b> sums to "+s+", matching adults + children."]);
+      else if(d.infant && s===d.paxSeated+d.infant)
+        c.push(["fail",d.destination+": <b>.PAX/</b> sums to "+s+" but adults + children is "+
+          d.paxSeated+". The difference is exactly the "+d.infant+
+          " infant(s) — infants do not occupy a seat and must be excluded."]);
+      else
+        c.push(["fail",d.destination+": <b>.PAX/</b> sums to "+s+" but adults + children is "+
+          d.paxSeated+"."]);
+    }
+    if(d.male!==null && d.adult!==(d.male+d.female))
+      c.push(["fail",d.destination+": males + females ("+(d.male+d.female)+
+        ") does not equal adults ("+d.adult+")."]);
+
+    const cs = Object.values(d.compartments).reduce((a,b)=>a+b,0);
+    const tot = d.totalDeadload!==null? d.totalDeadload : d.cargoTotalWeight;
+    if(Object.keys(d.compartments).length && tot!==null){
+      if(cs===tot)
+        c.push(["pass",d.destination+": compartment weights sum to "+cs+", matching the total."]);
+      else if(dests.length>1)
+        c.push(["warn",d.destination+": compartments sum to "+cs+" against a total of "+tot+
+          ". On a multi-destination flight a hold can carry load for several stations, so this "+
+          "is a discrepancy to review rather than a parse error."]);
+      else
+        c.push(["fail",d.destination+": compartments sum to "+cs+" but the total is "+tot+"."]);
+    }
+    const cat = Object.entries(d.loadCategories);
+    if(cat.length && tot!==null){
+      const cs2 = cat.reduce((a,[,v])=>a+v,0);
+      const names = cat.map(([k,v])=>LOAD_CATEGORIES[k]+" "+v).join(", ");
+      c.push(cs2===tot
+        ? ["pass",d.destination+": read <b>"+cat.map(([k,v])=>k+"/"+v).join(".")+
+           "</b> as a load-category breakdown ("+names+"), summing to "+cs2+
+           " and matching the total \u2014 not as compartments."]
+        : ["warn",d.destination+": read <b>"+cat.map(([k,v])=>k+"/"+v).join(".")+
+           "</b> as a load-category breakdown, but it sums to "+cs2+" against a total of "+tot+
+           ". If these are compartment designators rather than categories, the total will not "+
+           "reconcile either way."]);
+    }
+    if(tot===null) c.push(["fail",d.destination+": no <b>.T</b> or <b>.TW</b> element found."]);
+    if(!/^[A-Z]{3}$/.test(d.destination))
+      c.push(["fail","Destination <b>"+d.destination+"</b> is not a three-letter code — "+
+        "usually a continuation line misread as a new block."]);
+  });
+
+  const si=res.supplementary;
+  if(si && dests.length===1){
+    const parts=[si.baggageWeight,si.cargoWeight,si.mailWeight,si.equipmentWeight]
+      .filter(v=>v!==null);
+    const tot = dests[0].totalDeadload!==null?dests[0].totalDeadload:dests[0].cargoTotalWeight;
+    if(parts.length && tot!==null){
+      const s=parts.reduce((a,b)=>a+b,0);
+      c.push(s===tot
+        ? ["pass","SI breakdown sums to "+s+", matching total deadload."]
+        : ["warn","SI breakdown sums to "+s+" against a total of "+tot+"."]);
+    }
+    if(si.bagPieces!==null && Object.keys(si.holdPieces).length){
+      const s=Object.values(si.holdPieces).reduce((a,b)=>a+b,0);
+      c.push(s===si.bagPieces
+        ? ["pass","Bag pieces per hold sum to "+s+", matching <b>BPCS/</b>."]
+        : ["fail","<b>BPCS/</b> declares "+si.bagPieces+" pieces but the per-hold counts sum to "+
+           s+" — often a truncated continuation line."]);
+    }
+  }
+  return c;
+}
+
+function parseLDM(raw){
+  const warn=[];
+  const n = normalise(raw);
+  const flight = parseFlightRecord(n.header, warn);
+  const destinations = n.blocks.map(b=>parseBlock(b, warn));
+  if(!destinations.length) warn.push(["fail","No destination block found. A block must start on a "+
+    "new line with a hyphen and a three-letter code."]);
+  const res = {...flight, destinations,
+               supplementary: n.si.length? parseSI(n.si) : null};
+  res._structure = {totalLines:n.totalLines, blocks:n.blocks.length,
+                    siFrom:n.siFrom, siLines:n.si};
+  res.soulsOnBoard = destinations.reduce((a,d)=>
+    a + (d.paxSeated||0) + (d.infant||0), 0)
+    + (flight.cockpitCrew||0) + (flight.cabinCrewTotal||0);
+  return {result:res, checks:[...warn, ...validate(res)]};
+}
+
+/* ------------------------------------------------------------------ rendering */
+const SAMPLES = {
+ "single class": `LDM
+ZZ412/24.XYABC.Y189.3/5
+-FRA.41/28/2/2.T1340.4/1340.PAX/71
+.B/1340
+SI
+41/1320.42/20
+BPCS/82.41/80.42/2
+TRA BAGS LDD H41 DOORSIDE`,
+ "aircraft type + empty infant": `LDM
+XX0957/24.XYCDE.B772.3/9
+-LHR.228/19/4/.T9974.AB/582/A2/532/A1/2915/F2/4202/F1/1743
+.PAX/33/26/192
+SI LHR B/4001.C/5731.M/242`,
+ "wrapped at col 64": `LDM
+QQ8351/07.XYNKD.C16Y174.2/6
+-VIE.77/108/4/4.0.T3973.F1/1112/FB/354/FA/419/FC/552/AB/1536.PAX
+/108/39/42.PAD/5
+SI VIE FRE 806 POS 0 BAG 3167 TRA 0`,
+ "gender-split crew + special loads": `LDM
+WW187/24.XYEFG.J12Y206.2/0/5
+-CDG.118/74/8/0.0.T988.1/352.3/480.4/156.PAX/12/188.JMP/0.CRW/0
+.PAD/0/0.AVI/4/14.HEA/1/106`,
+ "freighter": `LDM
+AB904/01.XYABC.1234.2/0
+-BSL.A/65.C/920.D/1045.E/1121.K/65.TW3216
+-GVA.B/740.F/2325.G/1874.H/1212.J/387.TW6538`,
+ "infants leaked into PAX": `LDM
+VV7731/24.XYFGH.Y180.2/4
+-ZRH.61/77/17/2.T1110.1/1110.PAX/157`
+};
+
+const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;");
+function fmt(v){
+  if(v===null||v===undefined) return '<span class="null">null</span>';
+  if(Array.isArray(v)) return v.join(" / ");
+  return esc(v);
+}
+function card(title, note, inner, muted){
+  return '<div class="card'+(muted?' muted':'')+'"><div class="cardhead">'+
+    '<span class="t">'+esc(title)+'</span>'+(note?'<span class="n">'+esc(note)+'</span>':'')+
+    '</div>'+inner+'</div>';
+}
+function rows(list){
+  return '<table>'+list.map(([k,v])=>{
+    const wide = typeof v==="string" && v.length>24;
+    return '<tr><td>'+esc(k)+'</td><td class="'+(wide?'wide':'')+'">'+fmt(v)+'</td></tr>';
+  }).join("")+'</table>';
+}
+
+function buildRuler(){
+  // Column ruler: telex links break the line at a fixed width, usually 64.
+  let s="";
+  for(let i=1;i<=72;i++){
+    if(i===64) s+="<b>|</b>";
+    else if(i%10===0) s+="·";
+    else s+=" ";
+  }
+  document.getElementById("ruler").innerHTML = s+'  <b>64</b>';
+}
+
+function render(raw){
+  const out=document.getElementById("out");
+  if(!raw.trim()){ out.innerHTML='<div class="empty">Paste a message or pick a sample.</div>';
+    return; }
+  let p;
+  try{ p = parseLDM(raw); }
+  catch(e){ out.innerHTML='<div class="chk fail">Parser error: '+esc(e)+'</div>'; return; }
+  const r=p.result, st=r._structure;
+
+  let h='<div class="map">Read <b>'+st.totalLines+'</b> line(s) — flight record, <b>'+
+    st.blocks+'</b> destination block'+(st.blocks===1?'':'s')+', '+
+    (st.siFrom ? 'SI section from <b>line '+st.siFrom+'</b>.'
+               : '<span class="none">no SI section</span>.')+'</div>';
+
+  h+=card(r.airline&&r.flightNumber ? r.airline+r.flightNumber : "Flight record",
+    r.registration||"", rows([
+      ["Airline",r.airline],["Flight number",r.flightNumber],["Day of month",r.flightDay],
+      ["Registration",r.registration],["Version (verbatim)",r.aircraftVersion],
+      ["Cockpit crew",r.cockpitCrew],["Cabin crew",r.cabinCrewTotal],
+      ["Souls on board",r.soulsOnBoard]]));
+
+  r.destinations.forEach(d=>{
+    const list=[];
+    if(d.male!==null) list.push(["Male / female", d.male+" / "+d.female]);
+    list.push(["Adults",d.adult],["Children",d.child],["Infants",d.infant],
+      ["Seated passengers",d.paxSeated]);
+    if(d.cabinBaggageWeight!==null) list.push(["Cabin baggage",d.cabinBaggageWeight+" kg"]);
+    if(d.totalDeadload!==null) list.push(["Total deadload",d.totalDeadload+" kg"]);
+    if(d.cargoTotalWeight!==null) list.push(["Total weight",d.cargoTotalWeight+" kg"]);
+    const comp=Object.entries(d.compartments);
+    if(comp.length) list.push(["Compartments",comp.map(([k,v])=>k+" "+v).join("   ")]);
+    const cat=Object.entries(d.loadCategories);
+    if(cat.length) list.push(["Load categories",
+      cat.map(([k,v])=>LOAD_CATEGORIES[k]+" "+v).join("   ")]);
+    if(d.paxByClass){
+      const L=CLASS_LABELS[d.paxByClass.length]||d.paxByClass.map((_,i)=>"C"+(i+1));
+      list.push(["PAX by class",d.paxByClass.map((v,i)=>L[i]+" "+v).join("   ")]);
+    }
+    if(d.padByClass) list.push(["PAD",d.padByClass.join(" / ")]);
+    if(d.remarks.length) list.push(["Remarks",
+      d.remarks.map(x=>x.code+(x.values.length?" "+x.values.join("/"):"")).join("   ")]);
+    h+=card(d.destination, d.nil?"nil load":"destination", rows(list));
+  });
+
+  if(r.supplementary){
+    const s=r.supplementary, list=[];
+    [["Baggage",s.baggageWeight],["Cargo",s.cargoWeight],["Mail",s.mailWeight],
+     ["Equipment",s.equipmentWeight],["Bag pieces",s.bagPieces]].forEach(([k,v])=>{
+      if(v!==null) list.push([k,v]); });
+    if(Object.keys(s.holdWeights).length)
+      list.push(["Hold weights",Object.entries(s.holdWeights).map(([k,v])=>k+" "+v).join("   ")]);
+    const src='<div class="silines">'+st.siLines.map((l,i)=>
+        '<span class="ln">'+String(st.siFrom+i).padStart(3," ")+'  </span>'+esc(l)
+      ).join("\n")+'</div><div class="srcnote">Source lines the values above were read from.</div>';
+    h+=card("SI","supplementary",(list.length?rows(list):'<div class="pad">No machine-readable '+
+      'values found — the section is free text.</div>')+src);
+  } else {
+    h+=card("SI","absent",'<div class="pad">No supplementary information in this message. '+
+      'Where SI is absent the baggage / cargo / mail split is simply unavailable — only the '+
+      'total deadload is known.</div>', true);
+  }
+
+  h+='<h3>Cross-field validation</h3>';
+  if(!p.checks.length) h+='<div class="chk warn">Nothing to cross-check in this message.</div>';
+  p.checks.forEach(([lvl,msg])=>{ h+='<div class="chk '+lvl+'">'+msg+'</div>'; });
+
+  h+='<details><summary>JSON output</summary><pre class="json">'+
+     esc(JSON.stringify(r,(k,v)=>k==="_structure"?undefined:v,2))+'</pre></details>';
+
+  out.className="fade";
+  out.innerHTML=h;
+  void out.offsetWidth;
+}
+
+const ta=document.getElementById("in");
+const sb=document.getElementById("samples");
+Object.keys(SAMPLES).forEach(k=>{
+  const b=document.createElement("button");
+  b.textContent=k;
+  b.addEventListener("click",()=>{
+    ta.value=SAMPLES[k]; autoGrow(); render(ta.value);
+    [...sb.children].forEach(c=>c.classList.remove("sel"));
+    b.classList.add("sel");
+  });
+  sb.appendChild(b);
+});
+function autoGrow(){
+  ta.style.height="auto";
+  ta.style.height=Math.max(150, ta.scrollHeight+2)+"px";
+}
+ta.addEventListener("input",()=>{
+  autoGrow(); render(ta.value);
+  [...sb.children].forEach(c=>c.classList.remove("sel"));
+});
+window.addEventListener("resize",autoGrow);
+
+buildRuler();
+ta.value=SAMPLES["single class"];
+sb.children[0].classList.add("sel");
+autoGrow(); render(ta.value);
+</script>

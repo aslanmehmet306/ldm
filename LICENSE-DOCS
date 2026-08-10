@@ -1,0 +1,17 @@
+Documentation licence
+=====================
+
+The documentation in this repository — everything under skills/, and all Markdown
+files — is licensed under the Creative Commons Attribution 4.0 International
+licence (CC BY 4.0).
+
+    https://creativecommons.org/licenses/by/4.0/
+
+You are free to share and adapt this material for any purpose, including
+commercially, provided you give appropriate credit and indicate if changes were
+made.
+
+Source code — everything under docs/ and benchmark/ — is licensed separately
+under the MIT Licence; see LICENSE.
+
+Neither licence extends to any third-party material. See NOTICE.md for scope.
