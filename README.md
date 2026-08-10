@@ -38,8 +38,8 @@ the class arrays, the SI section, and the cross-field checks that catch a silent
 
 The single most useful thing in it: **an infant does not occupy a seat.** Seated passengers are
 adults plus children. Getting this wrong produces a plausible number that quietly inflates load
-factor and anything billed per passenger — and the `.PAX/` element in the same message is right
-there to catch it.
+factor and — depending on the applicable tariff — anything billed per passenger. Where the
+message carries a `.PAX/` element, it catches the error on the spot.
 
 ## The parser
 
