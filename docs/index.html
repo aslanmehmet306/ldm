@@ -136,6 +136,18 @@ td.wide{text-align:left; font-size:11.5px; line-height:1.65}
 .null{color:var(--faint); font-style:italic}
 .pad{padding:13px 16px; color:var(--dim); font-size:12px; line-height:1.6}
 
+.subhead{
+  font-family:var(--mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--faint); padding:12px 16px 7px; border-top:1px solid var(--line);
+}
+table.dist td{text-align:right}
+table.dist td:first-child{text-align:left; width:34%}
+table.dist tr.hd td{font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--faint)}
+table.dist tr.tot td{color:var(--text); border-top:1px solid var(--line); border-bottom:0}
+.remark{font-family:var(--mono); font-size:11.5px; color:var(--text); white-space:pre-wrap;
+  padding:2px 16px 9px; line-height:1.6}
+
 .chk{
   font-size:11.5px; padding:10px 13px 10px 15px; margin-bottom:7px;
   border-radius:8px; border:1px solid; line-height:1.55; font-family:var(--mono);
@@ -331,8 +343,9 @@ function parseBlock(str, warn){
   const dest = str.slice(1,4);
   const tokens = str.slice(4).split(".").filter(t=>t!=="");
   const d = {destination:dest, nil:false, male:null, female:null, adult:null, child:null,
-             infant:null, paxSeated:null, cabinBaggageWeight:null, totalDeadload:null,
-             cargoTotalWeight:null, compartments:{}, loadCategories:{}, paxByClass:null, padByClass:null,
+             infant:null, paxSeated:null, paxTotal:null, cabinBaggageWeight:null, totalDeadload:null,
+             cargoTotalWeight:null, compartments:{}, loadCategories:{},
+             paxReportedTotal:null, paxByClass:null, padByClass:null,
              remarks:[]};
   let seenTotal=false, seenPax=false;
 
@@ -344,7 +357,14 @@ function parseBlock(str, warn){
     if((m = tok.match(/^TW(\d{1,6})$/))){ d.cargoTotalWeight=+m[1]; seenTotal=true; continue; }
     if((m = tok.match(/^T(\d{1,6})$/))){ d.totalDeadload=+m[1]; seenTotal=true; continue; }
 
-    if(tok.startsWith("PAX/")){ d.paxByClass = tok.slice(4).split("/").map(Number); continue; }
+    // A single value is a reported seated total — a figure to reconcile against, not a
+    // class split. Two or more values are an explicit per-class distribution. Nothing about
+    // the class layout may be inferred from Element 4, which is free text.
+    if(tok.startsWith("PAX/")){
+      const v = tok.slice(4).split("/").map(Number);
+      if(v.length===1) d.paxReportedTotal = v[0]; else d.paxByClass = v;
+      continue;
+    }
     if(tok.startsWith("PAD/")){ d.padByClass = tok.slice(4).split("/").map(Number); continue; }
 
     const head = tok.split("/")[0];
@@ -367,7 +387,12 @@ function parseBlock(str, warn){
           d.infant = v[3]===""?null:+v[3];
         } else { warn.push(["warn",dest+": passenger element <b>"+tok+"</b> has "+v.length+
           " values; expected 3 or 4."]); }
-        if(d.adult!==null) d.paxSeated = d.adult + (d.child||0);
+        if(d.adult!==null){
+          d.paxSeated = d.adult + (d.child||0);
+          // An infant is carried on a lap: excluded from the seated count, included in the
+          // total. An empty infant field is unknown, so the total is unknown with it.
+          d.paxTotal = d.infant===null ? null : d.paxSeated + d.infant;
+        }
         seenPax=true; continue;
       }
       if(/^\d{1,4}$/.test(tok)){ d.cabinBaggageWeight=+tok; continue; }
@@ -395,10 +420,16 @@ function parseBlock(str, warn){
   return d;
 }
 
+// A line counts as structured once any of these match; anything left over is free text
+// and is preserved verbatim rather than guessed at.
+const SI_STRUCTURED = [/\b[BCME]\/\d+/, /\bBAG\s+\d+/, /\bFRE\s+\d+/, /\bPOS\s+\d+/,
+                       /\bTRA\s+\d+/, /^BPCS\//, /^\d{1,3}\/\d+(\.\d{1,3}\/\d+)*$/];
+
 function parseSI(lines){
   const text = lines.join("\n");
   const si = {baggageWeight:null, cargoWeight:null, mailWeight:null, equipmentWeight:null,
-              bagPieces:null, holdWeights:{}, holdPieces:{}, raw:text};
+              bagPieces:null, holdWeights:{}, holdPieces:{}, holdPositions:[], remarks:[],
+              raw:text};
   let m;
   // Pattern 2 — destination-level B/C/M/E
   if((m = text.match(/\bB\/(\d+)/))) si.baggageWeight = +m[1];
@@ -412,11 +443,24 @@ function parseSI(lines){
   if((m = text.match(/BPCS\/(\d+)/))) si.bagPieces = +m[1];
   for(const line of lines){
     const t = line.replace(/^SI\s*/,"").trim();
+    if(t==="") continue;
     if(/^\d{1,3}\/\d+(\.\d{1,3}\/\d+)*$/.test(t))
       t.split(".").forEach(p=>{const[a,b]=p.split("/"); si.holdWeights[a]=+b;});
     if(/^BPCS\//.test(t))
       t.split(".").slice(1).forEach(p=>{const[a,b]=p.split("/"); si.holdPieces[a]=+b;});
+    // Free text carries operational instructions that no schema covers. Keep the line
+    // exactly as sent rather than inventing structure for it.
+    if(!SI_STRUCTURED.some(re=>re.test(t))) si.remarks.push(t);
   }
+
+  // The weight line and the piece-count line address the same hold positions but arrive
+  // separately. Correlate them by designator so each position keeps its own row; a position
+  // present in only one of the two lines keeps a null for the missing side.
+  const positions = [...new Set([...Object.keys(si.holdWeights), ...Object.keys(si.holdPieces)])];
+  si.holdPositions = positions.map(p=>({
+    position: p,
+    pieces: p in si.holdPieces ? si.holdPieces[p] : null,
+    weight: p in si.holdWeights ? si.holdWeights[p] : null}));
   return si;
 }
 
@@ -426,17 +470,23 @@ function validate(res){
 
   dests.forEach(d=>{
     if(d.nil) return;
-    if(d.paxByClass && d.paxSeated!==null){
-      const s = d.paxByClass.reduce((a,b)=>a+b,0);
-      if(s===d.paxSeated)
-        c.push(["pass",d.destination+": <b>.PAX/</b> sums to "+s+", matching adults + children."]);
-      else if(d.infant && s===d.paxSeated+d.infant)
-        c.push(["fail",d.destination+": <b>.PAX/</b> sums to "+s+" but adults + children is "+
+    // .PAX/ is a reported figure to reconcile against the counts we derived, never a
+    // replacement for them. Both values stay in the result whether or not they agree.
+    const reported = d.paxReportedTotal!==null ? d.paxReportedTotal
+                   : d.paxByClass ? d.paxByClass.reduce((a,b)=>a+b,0) : null;
+    if(reported!==null && d.paxSeated!==null){
+      const how = d.paxByClass ? "<b>.PAX/</b> sums to "+reported
+                               : "<b>.PAX/</b> reports "+reported;
+      if(reported===d.paxSeated)
+        c.push(["pass",d.destination+": "+how+", reconciling with adults + children ("+
+          d.paxSeated+")."]);
+      else if(d.infant && reported===d.paxSeated+d.infant)
+        c.push(["fail",d.destination+": "+how+" but adults + children is "+
           d.paxSeated+". The difference is exactly the "+d.infant+
           " infant(s) — infants do not occupy a seat and must be excluded."]);
       else
-        c.push(["fail",d.destination+": <b>.PAX/</b> sums to "+s+" but adults + children is "+
-          d.paxSeated+"."]);
+        c.push(["fail",d.destination+": "+how+" but adults + children is "+
+          d.paxSeated+". Both figures are kept as parsed; neither replaces the other."]);
     }
     if(d.male!==null && d.adult!==(d.male+d.female))
       c.push(["fail",d.destination+": males + females ("+(d.male+d.female)+
@@ -490,6 +540,14 @@ function validate(res){
         ? ["pass","Bag pieces per hold sum to "+s+", matching <b>BPCS/</b>."]
         : ["fail","<b>BPCS/</b> declares "+si.bagPieces+" pieces but the per-hold counts sum to "+
            s+" — often a truncated continuation line."]);
+    }
+    if(Object.keys(si.holdWeights).length && tot!==null){
+      const s=Object.values(si.holdWeights).reduce((a,b)=>a+b,0);
+      c.push(s===tot
+        ? ["pass","Supplementary hold weights sum to "+s+", matching total deadload."]
+        : ["warn","Supplementary hold weights sum to "+s+" against a total of "+tot+
+           ". Supplementary positions subdivide the main compartments, so they need not "+
+           "match one-to-one — review rather than assume a parse error."]);
     }
   }
   return c;
@@ -562,6 +620,19 @@ function rows(list){
     return '<tr><td>'+esc(k)+'</td><td class="'+(wide?'wide':'')+'">'+fmt(v)+'</td></tr>';
   }).join("")+'</table>';
 }
+function distTable(positions){
+  // One row per hold position, plus a total. Positions stay distinct — collapsing them
+  // into a single string loses the per-hold split the message went to the trouble of sending.
+  const cell = v => v===null ? '<span class="null">—</span>' : esc(v.toLocaleString("en-US"));
+  const sum = k => positions.every(p=>p[k]===null) ? null
+                 : positions.reduce((a,p)=>a+(p[k]||0),0);
+  const body = positions.map(p=>'<tr><td>'+esc(p.position)+'</td><td>'+cell(p.pieces)+
+    '</td><td>'+cell(p.weight)+(p.weight===null?'':' kg')+'</td></tr>').join("");
+  const tw = sum("weight");
+  return '<table class="dist"><tr class="hd"><td>Position</td><td>Pieces</td><td>Weight</td></tr>'+
+    body+'<tr class="tot"><td>Total</td><td>'+cell(sum("pieces"))+'</td><td>'+cell(tw)+
+    (tw===null?'':' kg')+'</td></tr></table>';
+}
 
 function buildRuler(){
   // Column ruler: telex links break the line at a fixed width, usually 64.
@@ -589,7 +660,7 @@ function render(raw){
                : '<span class="none">no SI section</span>.')+'</div>';
 
   h+=card(r.airline&&r.flightNumber ? r.airline+r.flightNumber : "Flight record",
-    r.registration||"", rows([
+    "flight", rows([
       ["Airline",r.airline],["Flight number",r.flightNumber],["Day of month",r.flightDay],
       ["Registration",r.registration],["Version (verbatim)",r.aircraftVersion],
       ["Cockpit crew",r.cockpitCrew],["Cabin crew",r.cabinCrewTotal],
@@ -600,6 +671,9 @@ function render(raw){
     if(d.male!==null) list.push(["Male / female", d.male+" / "+d.female]);
     list.push(["Adults",d.adult],["Children",d.child],["Infants",d.infant],
       ["Seated passengers",d.paxSeated]);
+    if(d.paxTotal!==null) list.push(["Total passengers (incl. infants)",d.paxTotal]);
+    if(d.paxReportedTotal!==null)
+      list.push([".PAX/ reported seated",d.paxReportedTotal]);
     if(d.cabinBaggageWeight!==null) list.push(["Cabin baggage",d.cabinBaggageWeight+" kg"]);
     if(d.totalDeadload!==null) list.push(["Total deadload",d.totalDeadload+" kg"]);
     if(d.cargoTotalWeight!==null) list.push(["Total weight",d.cargoTotalWeight+" kg"]);
@@ -623,12 +697,20 @@ function render(raw){
     [["Baggage",s.baggageWeight],["Cargo",s.cargoWeight],["Mail",s.mailWeight],
      ["Equipment",s.equipmentWeight],["Bag pieces",s.bagPieces]].forEach(([k,v])=>{
       if(v!==null) list.push([k,v]); });
-    if(Object.keys(s.holdWeights).length)
-      list.push(["Hold weights",Object.entries(s.holdWeights).map(([k,v])=>k+" "+v).join("   ")]);
-    const src='<div class="silines">'+st.siLines.map((l,i)=>
+    const dist = s.holdPositions.length
+      ? '<div class="subhead">Baggage distribution by hold position</div>'+distTable(s.holdPositions)
+      : '';
+    const rem = s.remarks.length
+      ? '<div class="subhead">Operational remarks</div>'+
+        s.remarks.map(t=>'<div class="remark">'+esc(t)+'</div>').join("")
+      : '';
+    const src='<div class="subhead">Source lines</div><div class="silines">'+
+      st.siLines.map((l,i)=>
         '<span class="ln">'+String(st.siFrom+i).padStart(3," ")+'  </span>'+esc(l)
       ).join("\n")+'</div><div class="srcnote">Source lines the values above were read from.</div>';
-    h+=card("SI","supplementary",(list.length?rows(list):'<div class="pad">No machine-readable '+
+    h+=card("Supplementary information","SI",
+      (list.length?rows(list):'')+dist+rem+
+      (list.length||dist||rem ? '' : '<div class="pad">No machine-readable '+
       'values found — the section is free text.</div>')+src);
   } else {
     h+=card("SI","absent",'<div class="pad">No supplementary information in this message. '+
