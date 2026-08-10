@@ -28,6 +28,7 @@ This repository writes that knowledge down.
 | `skills/ldm-message-parsing/` | The knowledge, as a skill file you can hand to an AI model |
 | `docs/index.html` | The same rules as a standalone browser parser — no build, no dependencies |
 | `benchmark/` | Harness measuring whether the skill actually changes extraction accuracy |
+| `tests/` | Parser test suite — `node --test 'tests/*.test.mjs'`, no dependencies |
 
 ## The skill
 
@@ -43,7 +44,7 @@ message carries a `.PAX/` element, it catches the error on the spot.
 
 ## The parser
 
-`docs/index.html` is one file, ~30 KB, zero dependencies, no network calls of any kind — not even
+`docs/index.html` is one file, ~35 KB, zero dependencies, no network calls of any kind — not even
 web fonts. Open it locally or use the hosted link above.
 
 It does two things. It parses, and then it cross-checks the message against itself: compartment

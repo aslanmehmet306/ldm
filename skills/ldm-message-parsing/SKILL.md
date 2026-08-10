@@ -161,10 +161,11 @@ Souls on Board   = adults + children + infants + crew
 
 In the four-value form, `adults = males + females`.
 
-The `.PAX/` element later in the same block is the authoritative cross-check: its values must sum
-to `adults + children`. If your parsed total includes infants, it will disagree with `.PAX/` on
-every message carrying an infant — a silent, systematic overcount that surfaces downstream in
-billing, statistics and load-factor reporting.
+When present, the `.PAX/` element later in the same block is the cross-check: its values must sum
+to `adults + children`. Treat it as a figure to reconcile against, never as a replacement — on a
+mismatch, keep both values and raise a warning. If your parsed total includes infants, it will
+disagree with `.PAX/` on every message carrying an infant — a silent, systematic overcount that
+surfaces downstream in billing, statistics and load-factor reporting.
 
 If there is deadload to a destination but no passengers, the counts arrive as explicit zeros, not
 omitted.
@@ -226,14 +227,19 @@ choose — this is a case where a human reading the output needs to see the deci
 ### PAX and PAD per class
 
 ```
-.PAX/71                 single class
+.PAX/71                 single value — reported seated total
 .PAX/12/152             business / economy
 .PAX/33/26/192          first / business / economy
 ```
 
-Values run in **descending cabin priority order**, and the count is not fixed. Map from the right:
-the last value is always the lowest cabin. Indexing from the left breaks whenever an operator
-changes cabin configuration.
+Two or more values are an explicit per-class distribution. A **single value is the reported seated
+total** — on a single-cabin aircraft this coincides with the one-class figure, but treat it as a
+total to reconcile against, and do not infer a cabin layout from it (the version field is free
+text and carries no reliable layout either).
+
+Multi-value arrays run in **descending cabin priority order**, and the count is not fixed. Map
+from the right: the last value is always the lowest cabin. Indexing from the left breaks whenever
+an operator changes cabin configuration.
 
 `.PAD/` follows the same shape and carries Passengers At Destination, including last-minute changes.
 

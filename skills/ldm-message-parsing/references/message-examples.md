@@ -37,7 +37,7 @@ TRA BAGS LDD H41 DOORSIDE
 | Passengers | 41 male, 28 female, 2 children, 2 infants |
 | Total deadload | 1,340 kg |
 | Compartments | hold 4: 1,340 kg |
-| PAX per class | 71 — single value, single cabin |
+| `.PAX/` reported seated | 71 — single value: a total to reconcile, not a class split |
 | Load category | `.B/1340` on a continuation line — baggage, **not** a compartment |
 
 **Validation**

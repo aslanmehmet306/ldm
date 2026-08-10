@@ -63,7 +63,9 @@ SCHEMA = """Return ONLY a JSON object, no prose, no markdown fences, in exactly 
   }
 }
 
-Use null for values the message does not carry. Do not invent values."""
+Use null for values the message does not carry. Do not invent values.
+"paxByClass" holds the .PAX/ element's values as an array; a single-valued
+.PAX/ becomes a one-element array."""
 
 TASK = "Parse the following IATA Type B LDM message.\n\n<message>\n{raw}\n</message>"
 
