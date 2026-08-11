@@ -171,6 +171,32 @@ SI LHR B/4001.C/5731.M/242`).result.supplementary;
   assert.equal(si.baggageWeight, 4001);
 });
 
+test("space-separated elements are split like full stops", () => {
+  // Some operators separate elements with spaces instead of full stops, mixed
+  // freely with dot-separated ones in the same line.
+  const p = only(`LDM
+ZZ987/09.XYHJK.Y323.3/8
+-DUS.150/110/40/12.T9300.2/2000.4/5400 5/1900 PAX/300 B/8000 C/1300`);
+  assert.deepEqual(p.d.compartments, {"2": 2000, "4": 5400, "5": 1900});
+  assert.equal(p.d.totalDeadload, 9300);
+  assert.equal(p.d.paxReportedTotal, 300);
+  assert.deepEqual(p.d.loadCategories, {B: 8000, C: 1300});
+  assert.ok(!p.checks.some(([,m]) => /unrecognised/.test(m)),
+    "no element should be dropped as unrecognised");
+});
+
+test("a stop between T and the value still reads as the total", () => {
+  // "T.9300" — without the pair rule, "T" is dropped and "9300" is silently
+  // misread as the unlabelled cabin-baggage element.
+  const p = only(`LDM
+ZZ987/09.XYHJK.Y323.3/8
+-DUS.150/110/40/12.T.9300.2/2000.4/5400.5/1900.PAX/300`);
+  assert.equal(p.d.totalDeadload, 9300);
+  assert.equal(p.d.cabinBaggageWeight, null, "9300 must not leak into cabin baggage");
+  assert.equal(p.d.paxSeated, 300);
+  assert.ok(checkFor(p, "pass", "compartment weights sum to 9300"));
+});
+
 test("every bundled sample parses without throwing", () => {
   // Guards against a change that fixes one shape and breaks another.
   const samples = [MSG,

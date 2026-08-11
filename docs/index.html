@@ -341,7 +341,10 @@ function parseCompartmentToken(tok){
 
 function parseBlock(str, warn){
   const dest = str.slice(1,4);
-  const tokens = str.slice(4).split(".").filter(t=>t!=="");
+  // Some operators separate elements with spaces instead of (or mixed with) full stops:
+  // ".2/2105.4/5330 5/1900 PAX/323". Split on both — inside a load block no element
+  // legitimately contains a space, so this loses nothing.
+  const tokens = str.slice(4).split(".").flatMap(t=>t.split(/\s+/)).filter(t=>t!=="");
   const d = {destination:dest, nil:false, male:null, female:null, adult:null, child:null,
              infant:null, paxSeated:null, paxTotal:null, cabinBaggageWeight:null, totalDeadload:null,
              cargoTotalWeight:null, compartments:{}, loadCategories:{},
@@ -349,13 +352,22 @@ function parseBlock(str, warn){
              remarks:[]};
   let seenTotal=false, seenPax=false;
 
-  for(const tok of tokens){
+  for(let i=0;i<tokens.length;i++){
+    const tok = tokens[i];
     if(tok==="NIL"){ d.nil=true; continue; }
 
     // Element 11B on freighters — check TW before T, or "TW3216" reads as T + "W3216".
     let m;
     if((m = tok.match(/^TW(\d{1,6})$/))){ d.cargoTotalWeight=+m[1]; seenTotal=true; continue; }
     if((m = tok.match(/^T(\d{1,6})$/))){ d.totalDeadload=+m[1]; seenTotal=true; continue; }
+
+    // Some operators put a stop between the marker and the value: "T.9335". A bare T/TW
+    // followed by a number is that total — left unhandled, the number would fall through
+    // and be silently misread as the unlabelled cabin-baggage element.
+    if((tok==="T"||tok==="TW") && /^\d{1,6}$/.test(tokens[i+1]||"")){
+      if(tok==="TW") d.cargoTotalWeight=+tokens[++i]; else d.totalDeadload=+tokens[++i];
+      seenTotal=true; continue;
+    }
 
     // A single value is a reported seated total — a figure to reconcile against, not a
     // class split. Two or more values are an explicit per-class distribution. Nothing about

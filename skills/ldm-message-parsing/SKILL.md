@@ -77,6 +77,10 @@ Two structural facts drive parser design, and both are about transmission rather
 2. **Elements are separated by full stops, but full stops also appear inside values.** `.PAX/12/155`
    is one element; `.1/1170.2/780` is two compartment elements. Splitting naively on `.` destroys
    the structure. Match element *prefixes* rather than splitting blindly.
+3. **Some operators separate elements with spaces instead of full stops** — often mixed within one
+   line: `.2/2105.4/5330 5/1900 PAX/323`. Treat runs of whitespace inside a load block as element
+   separators, exactly like full stops; no element in a load block legitimately contains a space.
+   (SI free text is different — there, spaces are just spaces.)
 
 ## The flight record
 
@@ -180,6 +184,12 @@ signal. It appears as `.0` frequently.
 
 `.T` followed by digits, in kilograms. This is the anchor value for validation: compartment loads
 for the destination should sum to it, and the SI weight breakdown should also sum to it.
+
+Some operators put a stop between the marker and the value: `.T.9335` instead of `.T9335` (the
+same happens with `.TW`). A bare `T` or `TW` token followed by a number is that total. Left
+unhandled, the marker is dropped and the number falls through to whatever positional rule comes
+next — typically misread as the unlabelled cabin baggage weight, which is a silent wrong value
+rather than a parse failure.
 
 ### Compartment loads
 
